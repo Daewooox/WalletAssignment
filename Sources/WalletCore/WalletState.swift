@@ -6,24 +6,29 @@ public enum WalletLifecycleState: Sendable, Equatable {
 }
 
 public struct WalletState: Sendable, Equatable {
+    public static let defaultTransactionHistoryLimit = 256
+
     public let walletID: WalletIdentifier
     public let balance: Amount
     public let nextExpectedNonce: UInt64
     public let lifecycleState: WalletLifecycleState
-    public let appliedTransactionIDs: Set<TransactionIdentifier>
+    public let recentTransactionIDs: [TransactionIdentifier]
+    public let transactionHistoryLimit: Int
 
     public init(
         walletID: WalletIdentifier,
         balance: Amount,
         nextExpectedNonce: UInt64 = 0,
         lifecycleState: WalletLifecycleState = .active,
-        appliedTransactionIDs: Set<TransactionIdentifier> = []
+        recentTransactionIDs: [TransactionIdentifier] = [],
+        transactionHistoryLimit: Int = WalletState.defaultTransactionHistoryLimit
     ) {
         self.walletID = walletID
         self.balance = balance
         self.nextExpectedNonce = nextExpectedNonce
         self.lifecycleState = lifecycleState
-        self.appliedTransactionIDs = appliedTransactionIDs
+        self.recentTransactionIDs = recentTransactionIDs
+        self.transactionHistoryLimit = transactionHistoryLimit
     }
 
     func withLifecycleState(_ lifecycleState: WalletLifecycleState) -> WalletState {
@@ -32,7 +37,30 @@ public struct WalletState: Sendable, Equatable {
             balance: balance,
             nextExpectedNonce: nextExpectedNonce,
             lifecycleState: lifecycleState,
-            appliedTransactionIDs: appliedTransactionIDs
+            recentTransactionIDs: recentTransactionIDs,
+            transactionHistoryLimit: transactionHistoryLimit
+        )
+    }
+
+    func containsRecentTransactionID(_ id: TransactionIdentifier) -> Bool {
+        recentTransactionIDs.contains(id)
+    }
+
+    func recordingAppliedTransaction(id: TransactionIdentifier, debitedAmount: Amount) -> WalletState {
+        var updatedTransactionIDs = recentTransactionIDs
+        updatedTransactionIDs.append(id)
+
+        if updatedTransactionIDs.count > transactionHistoryLimit {
+            updatedTransactionIDs.removeFirst(updatedTransactionIDs.count - transactionHistoryLimit)
+        }
+
+        return WalletState(
+            walletID: walletID,
+            balance: balance - debitedAmount,
+            nextExpectedNonce: nextExpectedNonce + 1,
+            lifecycleState: lifecycleState,
+            recentTransactionIDs: updatedTransactionIDs,
+            transactionHistoryLimit: transactionHistoryLimit
         )
     }
 }

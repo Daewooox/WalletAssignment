@@ -51,7 +51,7 @@ struct WalletAssignmentDemo {
         }
 
         do {
-            _ = await wallet.lock()
+            _ = try await wallet.lock()
             let lockedAttempt = makeTransaction(
                 id: "trscn-locked",
                 from: "AlexWallet",

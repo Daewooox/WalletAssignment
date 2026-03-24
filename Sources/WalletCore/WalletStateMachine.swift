@@ -49,7 +49,9 @@ public struct WalletStateMachine: Sendable {
             throw WalletError.invalidAmount
         }
 
-        guard !state.appliedTransactionIDs.contains(transaction.id) else {
+        // Duplicate id detection is intentionally treated as explicit replay protection,
+        // separate from the strictly sequential nonce check.
+        guard !state.containsRecentTransactionID(transaction.id) else {
             throw WalletError.duplicateTransaction(id: transaction.id)
         }
 
@@ -70,15 +72,6 @@ public struct WalletStateMachine: Sendable {
             throw WalletError.invalidSignature
         }
 
-        var appliedTransactions = state.appliedTransactionIDs
-        appliedTransactions.insert(transaction.id)
-
-        return WalletState(
-            walletID: state.walletID,
-            balance: state.balance - transaction.amount,
-            nextExpectedNonce: state.nextExpectedNonce + 1,
-            lifecycleState: state.lifecycleState,
-            appliedTransactionIDs: appliedTransactions
-        )
+        return state.recordingAppliedTransaction(id: transaction.id, debitedAmount: transaction.amount)
     }
 }
