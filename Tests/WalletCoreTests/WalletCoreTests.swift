@@ -45,7 +45,7 @@ final class WalletCoreTests: XCTestCase {
         XCTAssertEqual(transition.previousState, initialState)
         XCTAssertEqual(transition.nextState.balance, 70)
         XCTAssertEqual(transition.nextState.nextExpectedNonce, 5)
-        XCTAssertEqual(transition.nextState.appliedTransactionIDs, Set(["trscn-success"]))
+        XCTAssertEqual(transition.nextState.recentTransactionIDs, ["trscn-success"])
         XCTAssertEqual(transition.nextState.lifecycleState, .active)
     }
 
@@ -89,7 +89,7 @@ final class WalletCoreTests: XCTestCase {
             walletID: "alex",
             balance: 100,
             nextExpectedNonce: 5,
-            appliedTransactionIDs: ["trscn-duplicate"]
+            recentTransactionIDs: ["trscn-duplicate"]
         )
         let transaction = makeSignedTransaction(
             id: "trscn-duplicate",
@@ -103,6 +103,45 @@ final class WalletCoreTests: XCTestCase {
         XCTAssertThrowsError(try stateMachine.transition(from: initialState, event: .applyTransaction(transaction))) { error in
             XCTAssertEqual(error as? WalletError, WalletError.duplicateTransaction(id: "trscn-duplicate"))
         }
+    }
+
+    func testExactReplayAttemptFailsWithDuplicateTransaction() throws {
+        let stateMachine = WalletStateMachine(verifier: verifier)
+        let initialState = WalletState(walletID: "alex", balance: 100, nextExpectedNonce: 0)
+        let transaction = makeSignedTransaction(
+            id: "trscn-replay-on-state-machine",
+            from: "alex",
+            to: "bob",
+            amount: 10,
+            nonce: 0,
+            stateMachine: stateMachine
+        )
+
+        let applied = try stateMachine.transition(from: initialState, event: .applyTransaction(transaction))
+
+        XCTAssertThrowsError(try stateMachine.transition(from: applied.nextState, event: .applyTransaction(transaction))) { error in
+            XCTAssertEqual(error as? WalletError, WalletError.duplicateTransaction(id: "trscn-replay-on-state-machine"))
+        }
+    }
+
+    func testRecentTransactionHistoryIsBounded() throws {
+        let stateMachine = WalletStateMachine(verifier: verifier)
+        let initialState = WalletState(
+            walletID: "alex",
+            balance: 100,
+            nextExpectedNonce: 0,
+            transactionHistoryLimit: 2
+        )
+
+        let first = makeSignedTransaction(id: "trscn-history-1", from: "alex", to: "bob", amount: 10, nonce: 0, stateMachine: stateMachine)
+        let second = makeSignedTransaction(id: "trscn-history-2", from: "alex", to: "carol", amount: 10, nonce: 1, stateMachine: stateMachine)
+        let third = makeSignedTransaction(id: "trscn-history-3", from: "alex", to: "dave", amount: 10, nonce: 2, stateMachine: stateMachine)
+
+        let afterFirst = try stateMachine.transition(from: initialState, event: .applyTransaction(first)).nextState
+        let afterSecond = try stateMachine.transition(from: afterFirst, event: .applyTransaction(second)).nextState
+        let afterThird = try stateMachine.transition(from: afterSecond, event: .applyTransaction(third)).nextState
+
+        XCTAssertEqual(afterThird.recentTransactionIDs, ["trscn-history-2", "trscn-history-3"])
     }
 
     func testInvalidSignatureFails() throws {
@@ -227,7 +266,7 @@ final class WalletCoreTests: XCTestCase {
         let snapshot = await wallet.snapshot()
         XCTAssertEqual(snapshot.balance, 75)
         XCTAssertEqual(snapshot.nextExpectedNonce, 2)
-        XCTAssertEqual(snapshot.appliedTransactionIDs, Set(["trscn-1", "trscn-2"]))
+        XCTAssertEqual(snapshot.recentTransactionIDs, ["trscn-1", "trscn-2"])
     }
 
     func testActorRejectsConcurrentReplayAttempt() async throws {

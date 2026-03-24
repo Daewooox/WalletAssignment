@@ -33,7 +33,7 @@ Key design choices:
 - Wallet logic is modeled as a deterministic state machine: `WalletState + WalletEvent -> WalletTransition | WalletError`.
 - `WalletStateMachine` is synchronous and side-effect free from the perspective of state mutation, which keeps transitions explicit and testable.
 - Signature verification is isolated behind `SignatureVerifying`, so the verification strategy can be swapped without changing business rules.
-- `WalletActor` is intentionally kept outside the core rules engine and acts as a concurrency boundary for consumers that need shared mutable access.
+- `WalletActor` is intentionally kept outside the core rules engine and acts as a concurrency boundary for consumers that need shared mutable access. All wallet events, including `lock` and `unlock`, are delegated back into `WalletStateMachine` so the transition rules stay centralized.
 
 This separation is meant to reflect how a mobile wallet often evolves in practice: deterministic business rules in one layer, SDK or FFI-backed verification in another, and app-facing orchestration on top.
 
@@ -57,6 +57,7 @@ That makes behavior easier to reason about, test, and eventually delegate to a l
 - Self-transfer and zero-value transfers are rejected as invalid proposals.
 - A locked wallet rejects transaction application until explicitly unlocked.
 - Only transactions originating from the wallet's own identifier are supported by this module.
+- Duplicate id detection uses a bounded in-memory history of recent applied transaction ids rather than an unbounded container.
 
 ## Error handling
 
@@ -73,7 +74,7 @@ The module exposes explicit domain failures through `WalletError`:
 
 No silent failures are used. Invalid operations always return a deterministic error.
 
-Validation order is also deliberate. For example, sender identity, self-transfer, duplicate detection, nonce validation, balance checks, and signature verification are all evaluated in a stable order so that the same invalid proposal fails the same way for the same input state.
+Validation order is also deliberate. Sender identity, self-transfer, duplicate detection, nonce validation, balance checks, and signature verification are evaluated in a stable order so that the same invalid proposal fails the same way for the same input state. The duplicate id check is intentional: it serves as explicit replay detection on top of the strictly sequential nonce, rather than relying on nonce mismatch alone to describe every replay scenario.
 
 ## Concurrency considerations
 
@@ -146,4 +147,5 @@ The test suite covers:
 - unsupported sender
 - invalid amount
 - actor-based serialization example for concurrent calls
+- explicit replay detection on the pure state machine
 - concurrent replay behavior against the actor boundary
